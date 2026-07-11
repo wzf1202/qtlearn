@@ -1,0 +1,35 @@
+﻿# Build directories
+build/
+cmake-build-*/
+
+# Qt auto-generated files (if generated in source tree)
+ui_*.h
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+*.autosave
+
+# Compiled binaries and libraries
+*.exe
+*.dll
+*.obj
+*.o
+*.a
+*.lib
+*.so
+*.dylib
+
+# Qt Creator
+.qtcreator/
+*.user
+CMakeLists.txt.user*
+
+# IDE
+.vs/
+.vscode/
+*.swp
+*~
+
+# System files
+.DS_Store
+Thumbs.db
