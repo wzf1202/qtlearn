@@ -10,6 +10,22 @@
 #include <QWidget>
 #include <windows.h>
 
+namespace
+{
+void _sleepInterruptible(std::atomic_bool& isStopSpam, int totalMs)
+{
+    constexpr int sliceMs = 50;
+    int sleptMs = 0;
+    while (sleptMs < totalMs && !isStopSpam.load())
+    {
+        const int remainMs = totalMs - sleptMs;
+        const int stepMs = remainMs < sliceMs ? remainMs : sliceMs;
+        QThread::msleep(stepMs);
+        sleptMs += stepMs;
+    }
+}
+}
+
 MainWindow::MainWindow(QWidget* pParent) : QMainWindow(pParent)
 {
     QWidget* pCentralWidget = new QWidget(this);
@@ -33,7 +49,7 @@ MainWindow::MainWindow(QWidget* pParent) : QMainWindow(pParent)
     m_pCountEdit->setText(QStringLiteral("10"));
     m_pCountEdit->setMaximumWidth(220);
 
-    QPushButton* pStartButton = new QPushButton(tr("Start"), pCentralWidget);
+    m_pStartButton = new QPushButton(tr("Start"), pCentralWidget);
 
     QFormLayout* pFormLayout = new QFormLayout();
     pFormLayout->addRow(tr("Interval (ms)"), m_pIntervalEdit);
@@ -47,10 +63,17 @@ MainWindow::MainWindow(QWidget* pParent) : QMainWindow(pParent)
     QVBoxLayout* pLayout = new QVBoxLayout(pCentralWidget);
     pLayout->addStretch();
     pLayout->addWidget(pFormContainer, 0, Qt::AlignHCenter);
-    pLayout->addWidget(pStartButton, 0, Qt::AlignHCenter);
+    pLayout->addWidget(m_pStartButton, 0, Qt::AlignHCenter);
     pLayout->addStretch();
 
-    connect(pStartButton, &QPushButton::clicked, this, &MainWindow::onStartSpam);
+    connect(m_pStartButton, &QPushButton::clicked, this, &MainWindow::onStartSpam);
+}
+
+MainWindow::~MainWindow()
+{
+    m_isStopSpam.store(true);
+    if (m_spamThread.joinable())
+        m_spamThread.join();
 }
 
 void MainWindow::onStartSpam()
@@ -75,28 +98,58 @@ void MainWindow::onStartSpam()
     }
 
     QMessageBox::information(this, tr("Ready"), tr("Click OK, then switch to the target input box within 3 seconds."));
-    QThread::msleep(3000);
-    for (int i = 0; i < count; ++i)
+
+    const QString text = m_pContentEdit->text();
+    m_pStartButton->setEnabled(false);
+
+    if (m_spamThread.joinable())
     {
-        for (QChar ch : m_pContentEdit->text())
+        m_isStopSpam.store(true);
+        m_spamThread.join();
+    }
+
+    m_isStopSpam.store(false);
+
+    m_spamThread = std::thread([this, intervalMs, count, text]() {
+        _sleepInterruptible(m_isStopSpam, 3000);
+        for (int i = 0; i < count && !m_isStopSpam.load(); ++i)
         {
-            INPUT inputs[2] = {};
-            inputs[0].type = INPUT_KEYBOARD;
-            inputs[0].ki.wVk = 0;
-            inputs[0].ki.wScan = ch.unicode();
-            inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
-            inputs[1] = inputs[0];
-            inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
-            SendInput(2, inputs, sizeof(INPUT));
+            for (QChar ch : text)
+            {
+                if (m_isStopSpam.load())
+                {
+                    break;
+                }
+                INPUT inputs[2] = {};
+                inputs[0].type = INPUT_KEYBOARD;
+                inputs[0].ki.wVk = 0;
+                inputs[0].ki.wScan = ch.unicode();
+                inputs[0].ki.dwFlags = KEYEVENTF_UNICODE;
+                inputs[1] = inputs[0];
+                inputs[1].ki.dwFlags = KEYEVENTF_UNICODE | KEYEVENTF_KEYUP;
+                SendInput(2, inputs, sizeof(INPUT));
+            }
+
+            if (m_isStopSpam.load())
+            {
+                break;
+            }
+
+            INPUT enterInputs[2] = {};
+            enterInputs[0].type = INPUT_KEYBOARD;
+            enterInputs[0].ki.wVk = VK_RETURN;
+            enterInputs[1].type = INPUT_KEYBOARD;
+            enterInputs[1].ki.wVk = VK_RETURN;
+            enterInputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
+            SendInput(2, enterInputs, sizeof(INPUT));
+            _sleepInterruptible(m_isStopSpam, intervalMs);
         }
 
-        INPUT enterInputs[2] = {};
-        enterInputs[0].type = INPUT_KEYBOARD;
-        enterInputs[0].ki.wVk = VK_RETURN;
-        enterInputs[1].type = INPUT_KEYBOARD;
-        enterInputs[1].ki.wVk = VK_RETURN;
-        enterInputs[1].ki.dwFlags = KEYEVENTF_KEYUP;
-        SendInput(2, enterInputs, sizeof(INPUT));
-        QThread::msleep(intervalMs);
-    }
+        if (!m_isStopSpam.load())
+        {
+            QMetaObject::invokeMethod(this, [this]() {
+                m_pStartButton->setEnabled(true);
+            }, Qt::QueuedConnection);
+        }
+    });
 }
