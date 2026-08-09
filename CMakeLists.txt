@@ -7,8 +7,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(BUILD_TASK1 "Build Qt task1" OFF)
 option(BUILD_TASK2 "Build Win32 task2" OFF)
-option(BUILD_TASK3 "Build QT task3" ON)
-option(BUILD_THREADLEARN "Build threadlearn" OFF)
+option(BUILD_TASK3 "Build QT task3" OFF)
+option(BUILD_THREADLEARN "Build threadlearn" ON)
 
 
 if(BUILD_TASK1)
